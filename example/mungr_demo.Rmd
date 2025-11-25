@@ -10,5 +10,372 @@ library(tidyr)
 library(dplyr)
 ```
 ```{r}
+# dataset from: https://catalog.data.gov/dataset/nutrition-physical-activity-and-obesity-behavioral-risk-factor-surveillance-system
 
+nutrition_df<- read.csv("Nutrition__Physical_Activity__and_Obesity_-_Behavioral_Risk_Factor_Surveillance_System.csv")
+nutrition_df
+```
+
+## Data Exploration
+
+```{r}
+setClass(
+  "MungrInspector",
+  slots = representation(
+    df = "data.frame",
+    unique_limit = "numeric",
+    unique_counts = "list",
+    na_counts = "numeric",
+    empty_counts = "numeric"
+  )
+)
+
+MungrInspector <- function(df, limit = 10){
+  new("MungrInspector")
+}
+```
+
+```{r}
+MungrInspector <- function(df, unique_limit = 10){
+  
+  #logic for unique_counts
+  unique_list <- list()
+  for(col_name in names(df)){
+    if(is.character(df[[col_name]])){
+      t <- table(df[[col_name]], useNA = "no")
+      unique_list[[col_name]] <- sort(t, decreasing = TRUE)
+    }
+  }
+  
+  #logic for NAs and empty strings (all columns)
+  calc_nas <- colSums(is.na(df))
+  calc_empty <- numeric()
+  for(col_name in names(df)){
+    if(is.character(df[[col_name]])){
+      calc_empty[col_name] <- sum(df[[col_name]] == "", na.rm = TRUE)
+    } else {
+      calc_empty[col_name] <- 0
+    }
+  }
+  
+  #create the new object
+  new("MungrInspector",
+      df = df,
+      unique_counts = unique_list,
+      na_counts = calc_nas,
+      empty_counts = calc_empty)
+  
+}
+```
+
+```{r}
+setGeneric("check_uniques", function(object, ...) standardGeneric("check_uniques"))
+setGeneric("check_missing", function(object) standardGeneric("check_missing"))
+setGeneric("give_advice", function(object,...) standardGeneric("give_advice"))
+```
+
+```{r}
+setMethod("check_uniques","MungrInspector", function(object, top_val_num = 5, col_limit = 10) {
+  results <- object@unique_counts
+  not_all <- FALSE
+  
+  #if the df has more columns than the requested column limit
+  if(length(results) > col_limit){
+    results <- object@unique_counts[1:col_limit]
+    not_all <- TRUE
+  }
+  
+  if(length(results) == 0){
+    cat("No character columns found.\n")
+  }
+  
+  if(not_all){
+    cat(sprintf("\n=== SHOWING FIRST %d COLUMNS ===\n", limit))
+  } else{
+    cat("\n=== SHOWING ALL COLUMNS ===\n")
+  }
+  for(col_name in names(results)){
+    cat(sprintf("\nColumn: %s\n", col_name))
+    top_vals <- head(results[[col_name]], top_val_num)
+    cat(sprintf(" - %s: %d", names(top_vals), top_vals),sep="\n")
+       if(top_val_num < length(results[[col_name]])){
+      cat(sprintf("\n...and %d more unique values not shown.\n", length(results[[col_name]])-top_val_num))
+    }
+  }
+  
+  })
+    
+```
+
+```{r}
+setMethod("give_advice","MungrInspector", function(object, na_threshold = .5, card_perc = .9) {
+  df <- object@df
+  n_rows <- nrow(df)
+  issues_found <- FALSE
+  
+  if (card_perc < .5){
+        warning(cat("Your cardinality percentage is low. You might want to try setting one that is at least 70%."))
+      }
+  
+  for(col_name in names(df)){
+      col_data <- df[[col_name]]
+      advice_list <- character()
+      
+      #Check Missing Data Severity
+      n_na <- object@na_counts[col_name]
+      if(n_na >0){
+        percentage_is_na <- (n_na/n_rows) * 100
+        
+        if(percentage_is_na > na_threshold){
+          advice_list <- c(advice_list, sprintf("CRITICAL: %.0f%% missing. Consider dropping this column.", percentage_is_na))
+        }else{
+          advice_list <- c(advice_list, sprintf("Warning: %.0f%% missing. Consider imputing missing values with mean or mode.", percentage_is_na))
+        }
+      }
+      
+    #Check empty strings (characters only)
+    if (is.character(col_data)) {
+      n_empty <- object@empty_counts[col_name]
+      
+      if (n_empty > 0) {
+        advice_list <- c(advice_list, "Consistency Issue: Mixed empty strings and NAs. Replace empty strings with this code: df[df == ''] <- NA")
+      }
+      
+      # Check Case Sensitivity
+      # If we lower-case everything, do we have fewer unique items? e.g., "Male", "male" -> "male" (2 items becomes 1)
+      n_uniq_original <- length(unique(col_data))
+      n_uniq_lower <- length(unique(tolower(col_data)))
+      
+      if (n_uniq_lower < n_uniq_original) {
+        diff <- n_uniq_original - n_uniq_lower
+        advice_list <- c(advice_list, sprintf("Formatting issue: Case inconsistency detected (%d duplicates). You have the same values counted as unique from each other due to case sensitivity. If this is not intentional, run: toupper() or tolower()", diff))
+      }
+      
+      
+      #Check for High Cardinality (Too many categories)
+      # If a high percentage (card_perc) of the rows are unique, it's likely an ID or free text, not a category
+      if (n_uniq_original > (n_rows * card_perc) && n_uniq_original < n_rows) {
+         advice_list <- c(advice_list, sprintf("Datatype: There's a lot of unique categories; %.0f%% of your values are unique. This looks like an ID or free text, not a categorical factor.", (card_perc)*100))
+      }
+    }
+       #Check for Zero Variance (Useless column)
+    # If there is only 1 unique value (and it's not just all NAs)
+    if (length(unique(na.omit(col_data))) == 1) {
+      advice_list <- c(advice_list, "Redundancy: Column has zero variance (same value for entire column). You might want to drop it.")
+    }
+
+    #Final results
+    if (length(advice_list) > 0) {
+      issues_found <- TRUE
+      cat(sprintf("Column [%s]:\n", col_name))
+      # Print advice with a bullet point
+      cat(sprintf("  -> %s", advice_list), sep = "\n")
+      cat("\n")
+    }
+      
+  } #end of for loop
+  if (!issues_found) {
+    cat("No obvious data issues found. Good job!\n")
+  }
+  })
+```
+
+
+```{r}
+dirty_df <- data.frame(
+  ID = c("A1", "A2", "A3", "A4", "A5"),          # High Cardinality (OK for ID, but we might warn)
+  Gender = c("Male", "male", "Female", "F", NA),  # Case inconsistency + NAs
+  Country = c("USA", "USA", "USA", "USA", "USA"), # Zero Variance
+  Notes = c("ok", "", "bad", NA, ""),             # Mixed Empty/NA
+  stringsAsFactors = FALSE
+)
+
+# 2. Create Object
+inspector <- MungrInspector(dirty_df)
+
+# 3. Ask for advice
+give_advice(inspector, card_perc = .3)
+```
+
+## Data Cleaning
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+MungrCleaner <- function(df){
+  if(!is.data.frame(df)) stop("Input must be a dataframe.")
+  
+  obj <- list(
+    data = as_tibble(df),
+    log = character()
+  )
+  attr(obj, "class") <- "MungrCleaner"
+  return(obj)
+}
+
+print.MungrCleaner <- function(x, ...){
+  cat(sprintf("MungrCleaner History for %s", print(substitute(x))))
+  if(length(x$log) > 0) {
+    cat("Status: Cleaned", length(x$log), "steps.\n")
+    show_history <- readline(prompt: "Would you like to see a log of methods used for this object? Enter 'yes' or 'no': ")
+    if(tolower(show_history)== "yes"){
+      cat("Log: ")
+    } else{
+      cat("Status: No changes yet\n")
+    }
+    print(head(x$data, 3))
+    invisible(x)
+  }
+}
+```
+
+```{r}
+#generic functions
+
+#reassigns column types based on simple patterns in each column.
+standardize_cols <- function(x, ...) UseMethod("clean_text")
+
+#empty fields replaced by NA, optional choice to upper or lower case all strings, choice to remove trailing white spaces
+clean_text <- function(x, ...) UseMethod("clean_text")
+
+#fill NAs with a specific value or imput with mean/median/mode based on num_val = argument and char_val = "Unknown"
+impute_missing <- function(x, ...) UseMethod("clean_text")
+
+#reformat and standardizes dates that comes in as strings or mixed string formats
+fix_dates <- function(x, ...) UseMethod("clean_text")
+
+#user-friendly way of changing dataframes from long to wide and vice versa
+reshape_widelong <- function(x, ...) UseMethod ("reshape_widelong")
+
+#combines all methods into one. Allow users to quickly clean dataframe without worrying about pipelines. Users can choose which functions to keep
+quick_clean <- function(x, ...) UseMethod("clean_text")
+
+```
+
+```{r}
+standardize_cols.MungrCleaner <- function(x, col_name = "",num_threshold = 0.7, cat_threshold = 0.7, ...){
+  #get dataframe
+  df <- x$data
+  cols_changed <- character()
+  
+  if(col_name == ""){
+    for(col_name in names(df)){
+    #check character columns
+    if(is.character(df[[col_name]])){
+      vals <- df[[col_name]]
+      
+      non_na_vals <- vals[!is.na(vals) & vals != ""]
+      if(length(non_na_vals) == 0) next
+      
+      clean_vals <- gsub("[,%$]","", non_na_vals)
+      num_vals <- suppressWarnings(as.numeric(clean_vals))
+    }
+    #check numeric columns
+    #check integer columns
+    } else{
+    print("placeholder. Come here and fix me :)")
+  }
+}
+```
+
+```{r}
+# --- Generic Definitions ---
+standardize_cols <- function(x, ...) UseMethod("standardize_cols")
+scrub_text       <- function(x, ...) UseMethod("scrub_text")
+remove_garbage   <- function(x, ...) UseMethod("remove_garbage")
+auto_clean       <- function(x, ...) UseMethod("auto_clean") # <--- THE NEW MASTER METHOD
+pull_data        <- function(x, ...) UseMethod("pull_data")
+
+# --- Method 1: Column Names ---
+standardize_cols.MungrCleaner <- function(x, ...) {
+  x$data <- x$data |>
+    dplyr::rename_with(~ tolower(gsub("\\s+", "_", .x))) |>
+    dplyr::rename_with(~ gsub("[^a-z0-9_]", "", .x))
+  
+  x$log <- c(x$log, "Cols standardized")
+  return(x)
+}
+
+# --- Method 2: Text Cleaning ---
+scrub_text.MungrCleaner <- function(x, ...) {
+  x$data <- x$data |>
+    dplyr::mutate(across(where(is.character), ~ stringr::str_squish(.x))) |>
+    dplyr::mutate(across(where(is.character), ~ dplyr::na_if(.x, "")))
+  
+  x$log <- c(x$log, "Text scrubbed")
+  return(x)
+}
+
+# --- Method 3: Garbage Removal ---
+remove_garbage.MungrCleaner <- function(x, strict = FALSE, ...) {
+  # Logic: Always dedupe. If strict=TRUE, drop columns with >50% missing data
+  x$data <- dplyr::distinct(x$data)
+  
+  if (strict) {
+    x$data <- x$data |> dplyr::select(where(~ mean(is.na(.)) < 0.5))
+    x$log <- c(x$log, "Garbage removed (Strict Mode)")
+  } else {
+    x$log <- c(x$log, "Garbage removed (Duplicates only)")
+  }
+  return(x)
+}
+
+# --- Method 4: Extraction ---
+pull_data.MungrCleaner <- function(x) {
+  return(x$data)
+}
+```
+
+```{r}
+auto_clean.MungrCleaner <- function(x, strict = FALSE, return_df = TRUE) {
+  
+  # 1. Run the Internal Pipeline
+  # We use the pipe HERE so the user doesn't have to.
+  x <- x |>
+    standardize_cols() |>
+    scrub_text() |>
+    remove_garbage(strict = strict)
+  
+  # 2. Add a final log entry
+  x$log <- c(x$log, "--- AUTO CLEAN COMPLETE ---")
+  
+  # 3. Decision: Return the S3 Object or the Raw Dataframe?
+  # By default (return_df = TRUE), we give them the dataframe immediately 
+  # so they don't even need to call pull_data().
+  if (return_df) {
+    return(x$data)
+  } else {
+    return(x)
+  }
+}
+```
+
+```{r}
+# 1. Load Data
+messy_df <- data.frame(" Name " = c(" Bob", "Bob "), "Age" = c(25, 25))
+
+# 2. Initialize
+cleaner <- MungrCleaner(messy_df)
+
+# 3. CLEAN IT (One function, returns the clean dataframe)
+clean_df <- auto_clean(cleaner) 
+
+# Result
+print(clean_df)
+# # A tibble: 1 × 2
+#   name    age
+#   <chr> <dbl>
+# 1 Bob      25
+```
+
+```{r}
+cleaner <- MungrCleaner(messy_df)
+
+# User builds their own custom pipeline
+custom_result <- cleaner |>
+  scrub_text() |>
+  remove_garbage(strict = TRUE) |>
+  pull_data()
 ```
