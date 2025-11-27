@@ -8,43 +8,91 @@ output: github_document
 ```{r}
 library(tidyr)
 library(dplyr)
-```
-```{r}
-# dataset from: https://catalog.data.gov/dataset/nutrition-physical-activity-and-obesity-behavioral-risk-factor-surveillance-system
-
-nutrition_df<- read.csv("Nutrition__Physical_Activity__and_Obesity_-_Behavioral_Risk_Factor_Surveillance_System.csv")
-nutrition_df
+library(naniar)
+library(ggplot2)
 ```
 
 
 ## Data Advice and Cleaning
 ```{r}
 set.seed(42)
-Names <- c("alice ", "BOB", "Charlie", "david", "EVE   ", NA, "frank", "", "grace", "Heidi", "unknown","JOE")
+
+generate_messy_df <- function(){
+  Names <- c("alice ", "BOB", "Charlie", "david", "EVE   ", NA, "frank", "", "grace", "Heidi", "unknown","JOE","john","Bill"," GRACE ","jerry","arnold")
 Categories <- c(
     "ACTIVE", "inactive", "PENDING", "Active", "inactive", NA, "active", "", 
-    "pending", "Active", "Unknown","acive"
+    "pending", "Active", "Unknown"
   )
 Prices <- c("$100.50", "200.00", "300.75", "450", "Error", NA, "$10", "150.25", 
     "350", "225","300"," $2.50 ")
-Is_Client <- sample(c(0, 1, 1.0, 0.0, NA), 500, replace = TRUE, prob = c(0.4, 0.4, 0.1, 0.05, 0.05))
+Is_Client <- sample(c(0, 1, 1.0, 0.0, NA), 100, replace = TRUE, prob = c(0.4, 0.4, 0.1, 0.05, 0.05))
+Satisfaction_Rating <- c(sample(c("1","2","3",4.0,5), 100, replace = TRUE, prob = c(0.3, 0.2, 0.2, 0.1, 0.1)))
 Dates <- c(
     "2023-01-01", "02/03/2023", "20230405", NA, "2023-10-20", "", 
-    "2023-11-25", "2023-12-01", "2024-01-01", "01/15/2024","2024-01-05","unknown"
+    "2023-11-25", "2023-12-01", "2024-01-01", "01/15/2024","2024-01-05","unknown","2023-01-02","2023-01-03"
   )
-ID <- 1:500
+ID <- 1:100
 
 
 messy_df <- tibble(
-  ID = IDF,
-  Name = sample(Names, 500, replace = TRUE),
-  Status = sample(Categories, 500, replace = TRUE),
-  Sale_Price = sample(Prices, 500, replace = TRUE),
+  ID = factor(ID),
+  Name = sample(Names, 100, replace = TRUE),
+  Status = sample(Categories, 100, replace = TRUE),
+  Sale_Price = sample(Prices, 100, replace = TRUE),
+  Satisfaction_Rating = Satisfaction_Rating,
   Is_Active = Is_Client,
-  Transaction_Date = sample(Dates, 500, replace = TRUE),
-  Notes,this_is_an_empty_column = "  "
-  
+  Transaction_Date = sample(Dates, 100, replace = TRUE),
+  Notes_this_is_an_empty_column = "  "
 )
+
+return(messy_df)
+}
+
+messy_df <- generate_messy_df()
+```
+
+```{r}
+#inspect dataframe
+str(messy_df)
+```
+
+
+```{r}
+#create object
+cleaner <- MungrCleaner(messy_df)
+print(cleaner)
+```
+
+```{r}
+#get advice
+cleaner <- get_advice(cleaner)
+```
+```{r}
+cleaner <- clean_text(cleaner)
+print(cleaner$data)
+```
+
+```{r}
+cleaner <- standardize_strcols(cleaner)
+print(cleaner$data)
+```
+
+```{r}
+cleaner <- standardize_numcols(cleaner)
+print(cleaner$data)
+```
+```{r}
+cleaner <- impute_missing(cleaner, col_name = "Sale_Price")
+print(cleaner$data)
+```
+```{r}
+messy_df <- generate_messy_df()
+```
+
+```{r}
+quick_cleaner <- MungrCleaner(messy_df)
+quick_cleaner <- quick_clean(quick_cleaner)
+print(cleaner$data)
 ```
 
 ```{r}
@@ -66,17 +114,14 @@ MungrCleaner <- function(df){
   return(obj)
 }
 
-print.MungrCleaner <- function(x, see_log = FALSE...){
+print.MungrCleaner <- function(x,...){
   cat("MungrCleaner History\n")
   if(length(x$log) > 0) {
     cat("Status: Cleaned", length(x$log), "steps.\n")
-    if(see_log == TRUE){
-      cat("Log: ")
-    }
     }else{
       cat("Status: No changes yet\n")
     }
-  return(x)
+  invisible(x)
   }
 ```
 
@@ -103,14 +148,18 @@ quick_clean <- function(x, ...) UseMethod("quick_clean")
 ```
 
 ```{r}
-get_advice.MungrCleaner <- function(x, na_threshold = .5, card_perc = .9){
+get_advice.MungrCleaner <- function(x, na_threshold = .5, factor_card_perc = .7, string_card_perc = 0.1,...){
   df <- x$data
   n_rows <- nrow(df)
   issues_found <- FALSE
   
-  if (card_perc < .5){
-        warning(cat("Your cardinality percentage is low. You might want to try setting one that is at least 70%."))
-      }
+if (factor_card_perc < 0.5) {
+  warning(sprintf("Cardinality percentage (%.0f%%) for identifying factor/string columns with high amount of variance (suggesting possible char-type) is low. Consider setting a value closer to 70%% (0.7) or higher.", card_perc * 100))
+}
+
+if (string_card_perc > 0.2) {
+  warning(sprintf("Cardinality percentage (%.0f%%) for identifying string columns with little variance (suggesting possible factor-type) is high. Consider setting a value closer to 10%% (0.1) or lower.", card_perc * 100))
+}
   
   for(col_name in names(df)){
       col_data <- df[[col_name]]
@@ -119,27 +168,28 @@ get_advice.MungrCleaner <- function(x, na_threshold = .5, card_perc = .9){
       #Check Missing Data Severity
       n_na <- sum(is.na(col_data))
       if(n_na >0){
-        percentage_is_na <- (n_na/n_rows) * 100
+        percentage_is_na <- n_na/n_rows
         
         if(percentage_is_na > na_threshold){
-          advice_list <- c(advice_list, sprintf("CRITICAL: %.0f%% missing. Consider dropping this column.", percentage_is_na))
+          advice_list <- c(advice_list, sprintf("CRITICAL: %.0f%% missing. Consider dropping this column.", percentage_is_na *100))
         }else{
-          advice_list <- c(advice_list, sprintf("Warning: %.0f%% missing. Consider imputing missing values with mean or mode.", percentage_is_na))
+          advice_list <- c(advice_list, sprintf("Warning: %.0f%% missing. Consider imputing missing values with a custom value. If this is a numeric-type column, consider imputing values with mean, median, or mode", percentage_is_na*100))
         }
       }
       
     #Check empty strings (characters only)
-    if (is.character(col_data)) {
-      n_empty <- sum(col_data == "")
+    if (is.character(col_data) || is.factor(col_data)) {
+      col_data_char <- as.character(col_data)
+      n_empty <- sum(col_data_char == "", na.rm = TRUE)
       
       if (n_empty > 0) {
-        advice_list <- c(advice_list, "Consistency Issue: Mixed empty strings and NAs. Replace empty strings with this code: df[df == ''] <- NA")
+        advice_list <- c(advice_list, "Consistency Issue: Mixed empty strings and NAs. If empty fields aren't intentional, replace empty strings with this code: df[df == ''] <- NA")
       }
       
       # Check Case Sensitivity
       # If we lower-case everything, do we have fewer unique items? e.g., "Male", "male" -> "male" (2 items becomes 1)
-      n_uniq_original <- length(unique(col_data))
-      n_uniq_lower <- length(unique(tolower(col_data)))
+      n_uniq_original <- length(unique(col_data_char))
+      n_uniq_lower <- length(unique(tolower(col_data_char)))
       
       if (n_uniq_lower < n_uniq_original) {
         diff <- n_uniq_original - n_uniq_lower
@@ -149,8 +199,14 @@ get_advice.MungrCleaner <- function(x, na_threshold = .5, card_perc = .9){
       
       #Check for High Cardinality (Too many categories)
       # If a high percentage (card_perc) of the rows are unique, it's likely an ID or free text, not a category
-      if (n_uniq_original > (n_rows * card_perc) && n_uniq_original < n_rows) {
-         advice_list <- c(advice_list, sprintf("Datatype: There's a lot of unique categories; %.0f%% of your values are unique. This looks like an ID or free text, not a categorical factor.", (card_perc)*100))
+      if (n_uniq_original > (n_rows * factor_card_perc)) {
+         advice_list <- c(advice_list, sprintf("Datatype: There's a lot of unique categories; %.0f%% of your values are unique. This looks like an ID or free text.", (factor_card_perc)*100))
+      }
+      
+      #Check for Unique Values (Column may be a category)
+      uniq_ratio <- n_uniq_lower / n_rows
+      if (uniq_ratio <= string_card_perc && n_uniq_lower > 1){
+        advice_list <- c(advice_list, sprintf("Datatype: This column has low cardinality; %.1f%% of your column has variance. You may want to change this column to a factor-type.", uniq_ratio*100))
       }
     }
        #Check for Zero Variance (Useless column)
@@ -172,11 +228,12 @@ get_advice.MungrCleaner <- function(x, na_threshold = .5, card_perc = .9){
   if (!issues_found) {
     cat("No obvious data issues found. Good job!\n")
   }
+  return(x)
   }
 ```
 
 ```{r}
-standardize_strcols.MungrCleaner <- function(x, col_name = "", convert_to_numtype = TRUE, convert_to_cattype = TRUE, num_threshold = 0.7, cat_threshold = 0.7, date_format = "ymd",...){
+standardize_strcols.MungrCleaner <- function(x, col_name = "", convert_to_numtype = TRUE, convert_to_cattype = TRUE, num_threshold = 0.7, date_threshold = 0.5, cat_threshold = 0.1, date_format = "ymd",...){
   #get dataframe
   df <- x$data
   cols_changed <- character()
@@ -198,8 +255,8 @@ standardize_strcols.MungrCleaner <- function(x, col_name = "", convert_to_numtyp
   #start for loop
   for(col_name in names(df)){
     #check character columns
-    if(is.character(df[[col_name]])){
-      vals <- df[[col_name]]
+    if(is.character(df[[col_name]]) || is.factor(df[[col_name]])){
+      vals <- as.character(df[[col_name]])
       non_na_vals <- vals[!is.na(vals) & vals != ""]
       
       if(length(non_na_vals) == 0) next #skip empty columns
@@ -245,9 +302,10 @@ standardize_strcols.MungrCleaner <- function(x, col_name = "", convert_to_numtyp
       
       date_ratio <- sum(!is.na(try_dates)) / length(non_na_vals)
       
-      if(date_ratio >= num_threshold){
+      if(date_ratio >= date_threshold){
         df[[col_name]] <- suppressWarnings(date_parser(df[[col_name]]))
         cols_changed <- c(cols_changed, paste0(col_name, " (-> Date)"))
+        converted <- TRUE
       }
       
       if (converted) next
@@ -256,9 +314,9 @@ standardize_strcols.MungrCleaner <- function(x, col_name = "", convert_to_numtyp
       #----
       uniq_ratio <- length(unique(non_na_vals)) / length(non_na_vals)
       
-      if (uniq_ratio <= cat_threshold && n_unique > 1) {
+      if (uniq_ratio <= cat_threshold && length(unique(non_na_vals)) > 1) {
         df[[col_name]] <- as.factor(df[[col_name]])
-        cols_changed <- c(cols_changed, paste0(col, " (-> Factor)"))
+        cols_changed <- c(cols_changed, paste0(col_name, " (-> Factor)"))
         converted <- TRUE
       }
       
@@ -291,7 +349,7 @@ standardize_numcols.MungrCleaner <- function(x, col_name = "", convert_bool = TR
     cols_to_process <- names(df)
   } else {
     if(!col_name %in% names(df)) stop(paste("Column", col_name, "not found."))
-    cols_to_prcocess <- col_name
+    cols_to_process <- col_name
   }
   
   #start for loop
@@ -299,7 +357,7 @@ standardize_numcols.MungrCleaner <- function(x, col_name = "", convert_bool = TR
     #check character columns
     if(is.numeric(df[[col_name]])){
       vals <- df[[col_name]]
-      non_na_vals <- vals[!is.na(vals) & vals != ""]
+      non_na_vals <- vals[!is.na(vals)]
       
       if(length(non_na_vals) == 0) next #skip empty columns
       converted <- FALSE
@@ -310,7 +368,7 @@ standardize_numcols.MungrCleaner <- function(x, col_name = "", convert_bool = TR
         
         if (all(u_vals %in% c(0,1))){
           df[[col_name]] <- as.logical(df[[col_name]])
-          cols_changed <- c(cols_changed, paste0(col, " (-> Bool)"))
+          cols_changed <- c(cols_changed, paste0(col_name, " (-> Bool)"))
           converted <- TRUE
         }
       }
@@ -365,14 +423,14 @@ clean_text.MungrCleaner <- function(x, case = NULL, trim = TRUE, ...) {
   
   df <- x$data
   
-  # 1. Trim Whitespace & Fix Empty Strings
+  # Trim Whitespace & Fix Empty Strings
   if (trim) {
     df <- df |>
       dplyr::mutate(dplyr::across(where(is.character), stringr::str_trim)) |>
       dplyr::mutate(dplyr::across(where(is.character), ~ dplyr::na_if(., "")))
   }
   
-  # 2. Case Conversion (Optional)
+  # Case Conversion (Optional)
   if (!is.null(case)) {
     # Select function based on string input
     case_func <- switch(tolower(case),
@@ -401,9 +459,20 @@ clean_text.MungrCleaner <- function(x, case = NULL, trim = TRUE, ...) {
 ```
 
 ```{r}
-impute_missing.MungrCleaner <- function(x, imp_type = "mean", num_val = 0, char_val = "Unknown", ...) {
+impute_missing.MungrCleaner <- function(x, col_name = "",imp_type = "mean", num_val = 0, char_val = "Unknown", ...) {
   
   df <- x$data
+  cols_changed <- character()
+  
+  if(col_name == ""){
+    cols_to_process <- names(df)
+  } else {
+    if(!col_name %in% names(df)) stop(paste("Column", col_name, "not found."))
+    cols_to_process <- col_name
+  }
+  
+num_cols <- cols_to_process[sapply(df[cols_to_process], is.numeric)] 
+char_cols <- cols_to_process[sapply(df[cols_to_process], is.character) | sapply(df[cols_to_process], is.factor)]
   
   # Helper function for Mode
   get_mode <- function(v) {
@@ -414,35 +483,43 @@ impute_missing.MungrCleaner <- function(x, imp_type = "mean", num_val = 0, char_
   }
 
   # --- A. Numeric Imputation ---
-  if(imp_type != ""){
-    if (imp_type == "mean") {
+  if(length(num_cols) > 0 && imp_type != ""){
+    
+    impute_func <- switch(imp_type,
+                        "mean" = function(.) ifelse(is.na(.), mean(., na.rm = TRUE), .),
+                        "median" = function(.) ifelse(is.na(.), median(., na.rm = TRUE), .),
+                        "mode" = function(.) ifelse(is.na(.), get_mode(.), .),
+                        "custom_num" = function(.) tidyr::replace_na(., num_val),
+                        NULL)
+    
+if (!is.null(impute_func)) {
       df <- df |>
-        dplyr::mutate(dplyr::across(where(is.numeric), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
-    } else if (imp_type == "median") {
-      df <- df |>
-        dplyr::mutate(dplyr::across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
-    } else if (imp_type == "mode") {
-      df <- df |>
-        dplyr::mutate(dplyr::across(where(is.numeric), ~ ifelse(is.na(.), get_mode(.), .)))
-    } else if (imp_type == "custom_num"){
-        if (is.numeric(num_val)) {
-        # Case 1: Constant value (e.g., 0, -1)
-        df <- df |>
-        dplyr::mutate(dplyr::across(where(is.numeric), ~ tidyr::replace_na(., num_val)))
+        dplyr::mutate(dplyr::across(!!dplyr::all_of(num_cols), impute_func))
+      cols_changed <- c(cols_changed, paste0(num_cols, " (Num Imputed)"))
     }
-    } else if (imp_type == "custom_char"){
-      if(is.character(char_val)){
-        df <- df |>
-        dplyr::mutate(dplyr::across(where(is.character), ~ tidyr::replace_na(., char_val)))
-      }
+  }
+
+  # --- B. Character Imputation (Custom Imputation Only) ---
+  if (length(char_cols) > 0 && imp_type == "custom_char") {
+    if (is.character(char_val) || is.factor(char_val)) {
+      df <- df |>
+        dplyr::mutate(dplyr::across(!!dplyr::all_of(char_cols), ~ tidyr::replace_na(., as.character(char_val))))
+      cols_changed <- c(cols_changed, paste0(char_cols, " (Char Imputed)"))
+    }
   }
   
-    x$data <- df
-    
+  x$data <- df
+  
   # Log
-  x$log <- c(x$log, sprintf("Imputed Missing: Numeric used '%s', Char used '%s'", imp_type, char_val))
-  return(x)
+  if (length(cols_changed) > 0) {
+    msg <- sprintf("Imputed Missing: %d columns changed: [%s]", 
+                   length(cols_changed), paste(unique(cols_changed), collapse = ", "))
+    x$log <- c(x$log, msg)
+  } else {
+    x$log <- c(x$log, "Imputed Missing: No changes made.")
   }
+
+  return(x)
 }
 ```
 
@@ -487,27 +564,3 @@ quick_clean.MungrCleaner <- function(x,
 
 ```
 
-```{r}
-cleaner <- MungrCleaner(nutrition_df)
-cleaner <- quick_clean(cleaner)
-```
-
-```{r}
-# Create messy data
-df <- data.frame(
-  ID = c("A1", "A2", "A3", "A4", "A5", "A6", "A7"),         # Should stay Char
-  Price = c(100, 200, 300, 400, NA, NA, 200), # Should become Numeric
-  Date = c("2023-01-01", "2023-01-02", "Error", "2023-01-04", "Error","error","2023-01-01"), # Should become Date
-  Status = c("Active ", "Active", "Inactive", "Active", "Inactive", "Active", "Active"), # Should become Factor
-  Is_Client = c("TRUE", "FALSE", "T", "F", 0, 1, "T"), # Should become Boolean
-  stringsAsFactors = FALSE
-)
-
-# Run cleaner
-cleaner <- MungrCleaner(df)
-cleaner <- quick_clean(cleaner)
-
-# View Log
-print(cleaner$data)
-
-```
