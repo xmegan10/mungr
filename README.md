@@ -1,10 +1,10 @@
-# 📦 MungrCleaner: An R Data Cleaning Framework
+# MungrCleaner: An R Data Cleaning Framework
 
 **MungrCleaner** is an R package designed to streamline data cleaning using the **S3 object system**. It provides a structured, auditable approach to common data preparation steps. Best for users who want to quickly clean data without worrying about long pipelines.
 
 -----
 
-## ✨ Key Features
+## Key Features
 
 The package centers around the `MungrCleaner` S3 object, which holds the raw data, applies modifications through generic methods, and maintains a detailed log of every operation.
 
