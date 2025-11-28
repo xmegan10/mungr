@@ -1,12 +1,16 @@
 Package: mungr
-Title: Basic Data Cleaning and Manipulation
+Title: Multi-Step Data Cleaning and Type Standardization
 Version: 0.0.0.9000
 Authors@R: 
     person("Megan", "Xiao", , "meganxiao@usf.edu", role = c("aut", "cre"))
-Description: A system focused on simplifying and accelerating data preparation. It provides intuitive functions built on dplyr and tidyr pipelines, allowing you to move quickly from raw data to an analysis-ready format with minimal custom code.
+Description: A system for accelerating data preparation using an S3 object (MungrCleaner) and generic methods. It provides sequential cleaning steps to standardize text, coerce column types, and impute missing values using intuitive functions built on tidyverse principles (dplyr, tidyr, stringr).
 Depends: R (>= 3.1.2)
-Imports: dplyr, tidyr
-License: `use_cc0_license()`
+Imports: 
+    dplyr,
+    tidyr,
+    stringr,
+    lubridate
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
