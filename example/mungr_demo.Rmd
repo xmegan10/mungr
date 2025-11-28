@@ -1,14 +1,22 @@
 ---
-title: "mungr_demo"
-author: "Megan Xiao"
-date: "2025-11-20"
+title: "Mungr Demo & Example Cases"
+author: "Author: Megan Xiao\n"
+date: "Date: 2025-11-20"
 output: github_document
 ---
 
+## Introduction
+<br>This document intends to teach users how to use the "mungr" package. The mungr package is designed to streamline and automate common data cleaning and preparation tasks (data munging). It is most helpful for users who want to quickly clean data without worrying about long pipelines. The package provides users with generic advice on how to clean messy data frames, column type standardization, text standardization, missing value management, and the ability to automate the entire cleaning sequence.<br>
+First, let's load the library:<br>
 
-## Data Advice and Cleaning
 ```{r}
-set.seed(42)
+library(mungr)
+library(tibble)
+```
+
+<br>Let's create an intentionally messy data frame, which will help us test the effectiveness of our functions. For this demonstration, we create a function called "generate_messy_df." This function creates a data frame by sampling from predefined vectors containing NA values, inconsistent casing, erroneous data types, and empty values. Each column samples from these vectors 100 times and returns the final data frame. For reproducibility, we set the seed to 21:<br>
+```{r}
+set.seed(21)
 
 generate_messy_df <- function(){
   Names <- c("alice ", "BOB", "Charlie", "david", "EVE   ", NA, "frank", "", "grace", "Heidi", "unknown","JOE","john","Bill"," GRACE ","jerry","arnold")
@@ -44,47 +52,150 @@ return(messy_df)
 messy_df <- generate_messy_df()
 ```
 
+<br>Let's inspect the structure of messy_df:<br>
 ```{r}
-#inspect dataframe
 str(messy_df)
 ```
-
+<br>If we wanted to get the status of "cleanliness" of our data frame, we could use the "get_advice" function from the MungrCleaner class. To do this, we first create an object and pass messy_df into MungrCleaner. Let's print this object:<br>
 
 ```{r}
-#create object
 cleaner <- MungrCleaner(messy_df)
 print(cleaner)
 ```
+<br>"cleaner" has 2 attributes: data and log. Data allows us to see our data frame as a tibble within the object. We can pass this object into other functions and, when we reassign the output, we can see the updated tibble in the data attribute. The log attributes show us changes made to our tibble from MungrClass methods.<br>
+We can access data and log by using the $ symbol:<br>
+```{r}
+cleaner$data
+```
 
 ```{r}
-#get advice
+cleaner$log
+```
+
+## Example: get_advice
+<br>The method "get_advice" analyzes a MungrCleaner object data frame,  identifies common data quality issues (missing values, empty strings, case inconsistency, and inappropriate cardinality), and prints suggested cleaning actions to the console. It invisibly returns the input object with no modifications to the data or log.<br>
+Pass the object into the method to get immediate results:<br>
+```{r}
 cleaner <- get_advice(cleaner)
 ```
+<br>Additionally, users can adjust the following parameters: na_threshold, factor_card_perc, and string_card_perc. Details on these parameters can be found in the documentation.<br>
+For example, changing string_card_perc from 0.1 (default) to 0.01 will remove the "low cardinality" warning from Status and Satisfaction_Rating since they no longer meet the threshold:<br>
+
+```{r}
+cleaner <- get_advice(cleaner, string_card_perc = 0.01)
+```
+
+## Example: clean_text
+<br>The method "clean_text" standardizes text in character columns by trimming whitespace, converting empty strings to NA, and standardizing cases.<br>
 ```{r}
 cleaner <- clean_text(cleaner)
-print(cleaner$data)
 ```
-
+<br>Passing the object into the method changes the data attribute/data frame. For example, our messy data frame from before contained trailing white spaces in the name "EVE":<br>
+```{r}
+messy_df$Name
+```
+<br>In our cleaner object, the trailing white space has now been removed:<br>
+```{r}
+print(cleaner$data$Name)
+```
+<br>Additionally, users can adjust the following parameters: case and trime. Details on these parameters can be found in the documentation.
+For example, changing case to "title" will capitalize the first letter of every name:<br>
+```{r}
+cleaner <- clean_text(cleaner, case = "title")
+cleaner$data$Name
+```
+## Example: standardize_strcols
+<br>The method "standardize_strcols" refines the data type of string columns within a MungrCleaner object, converting them to a Boolean type, numerical type, date type, or factor (Categorical) type based on their content.<br>
 ```{r}
 cleaner <- standardize_strcols(cleaner)
-print(cleaner$data)
+```
+<br>Passing the object into the method changes the column types of string columns in the data attribute/data frame. For example, the structure of messy_df has incorrect column types and mixed data types in the fields:<br>
+```{r}
+str(messy_df)
+```
+<br>After running "standardize_strcols," the string columns of our cleaner objects have been converted to the correct data types:<br>
+```{r}
+str(cleaner$data)
+```
+<br>Additionally, users can adjust the following parameters: col_name, num_threshold, date_threshold, and cat_threshold. Details on these parameters can be found in the documentation.<br>
+<br>For example, changing the cat_threshold from 0.1 (default) to 0.4 will turn the column type of Name into a factor since unique values do not appear more in 40% of the total values for that column.<br>
+```{r}
+cleaner <- standardize_strcols(cleaner, cat_threshold = 0.4)
+str(cleaner$data)
+```
+<br>Let's return the Name column back to a character type.<br>
+```{r}
+cleaner$data$Name <- as.character(cleaner$data$Name)
+str(cleaner)
 ```
 
+## Example: standardize_numcols
+<br>The method "standardize_numcols" refines the data type of numeric columns within a MungrCleaner object, converting them into a Boolean type, factor (Categorical) type, or integer (Memory Optimization) type based on their content. For the purpose of this demonstration, we will create a new cleaner object called. "cleaner_num" and change the column "Satisfaction_Rating" to a numeric:<br>
 ```{r}
-cleaner <- standardize_numcols(cleaner)
-print(cleaner$data)
+cleaner_num <- MungrCleaner(messy_df)
+cleaner_num$data$Satisfaction_Rating <- as.numeric(cleaner_num$data$Satisfaction_Rating)
+
+cleaner_num <- standardize_numcols(cleaner_num)
 ```
+<br>Passing the object into the method changes the column types of numeric columns in the data attribute/data frame. For this example, we are focusing on "Satisfaction_Rating" and Is_Active."<br>
 ```{r}
-cleaner <- impute_missing(cleaner, col_name = "Sale_Price")
-print(cleaner$data)
+str(messy_df)
 ```
+<br>After running "standardize_numcols," the numeric columns of our cleaner_num object have been converted to the correct data types. "Satisfaction_Rating" and "Is_Active" are now the correct column types:<br>
 ```{r}
-messy_df <- generate_messy_df()
+str(cleaner_num$data)
+```
+<br>As a note, a majority of data cleaning can be done with the method "standardized_strcols." However, if a user wants to target only numeric columns, this is a way to do so.<br>
+<br>Moreover, users can adjust the following parameters: col_name, convert_int, cat_threshold. Details on these parameters can be found in the documentation.<br>
+
+## Example: impute_missing
+<br>The method "impute missing"  fills missing (NA) values in data columns using various strategies (e.g., mean, median, mode, or a custom value). Before implementing the method, let's investigate the numeric column "Sale_Price":<br>
+```{r}
+cleaner$data$Sale_Price
+```
+<br>The total number of NAs in this column is 20:<br>
+```{r}
+sum(is.na(cleaner$data$Sale_Price))
+```
+<br>Let's pass our object into this method. By default, the method will impute missing values for numeric columns with the column mean:<br>
+```{r}
+cleaner <- impute_missing(cleaner)
+```
+<br>Now, the total number of NAs is 0:<br>
+```{r}
+sum(is.na(cleaner$data$Sale_Price))
+```
+<br>We can see that the method replaced the NA values with 215.6125:<br>
+```{r}
+cleaner$data$Sale_Price
+```
+<br>Additionally, users can adjust the following parameters: col_name, imp_type, num_val, char_val. Details on these parameters can be found in the documentation.<br>
+<br>For example, changing the "imp_type" to "custom_char" will fill all character type columns with "Unknown." As seen by the warning, factor columns will be converted to strings during imputation, so best practice includes filling missing fields before standardizing column types:<br>
+```{r}
+cleaner <- impute_missing(cleaner, imp_type = "custom_char")
 ```
 
+<br>Now, none of our columns (except "Transaction_Date" due to it being a date type) have NA values:<br>
 ```{r}
-quick_cleaner <- MungrCleaner(messy_df)
-quick_cleaner <- quick_clean(quick_cleaner)
-print(cleaner$data)
+colSums(is.na(cleaner$data))
 ```
 
+## Example: quick_clean
+<br>The method "quick_clean" applies a standardized, multi-step sequence of data cleaning and type standardization functions to a MungrCleaner object. In summary, it runs through every MungrCleaner method, allowing users to quickly clean a data frame without worrying about long pipelines. For the purpose of this demonstration, let's create a new MungrCleaner object called "cleaner_quick":<br>
+```{r}
+cleaner_quick <- MungrCleaner(messy_df)
+```
+<br>Let's run "get_advice" to see the current errors with each column:<br>
+```{r}
+get_advice(cleaner_quick)
+```
+<br>Now, let's pass "cleaner_quick" into this method. Now when we run "get_advice," we get less error messages:<br>
+```{r}
+cleaner_quick <- quick_clean(cleaner_quick)
+get_advice(cleaner_quick)
+```
+<br>We can view our history of method usage with the log attribute:<br>
+```{r}
+cleaner_quick$log
+```
+<br>As of now, "quick_clean" has not been optimized to handle every existing case for messy data. Therefore, this function has certain limitations.<br>
