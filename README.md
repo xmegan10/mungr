@@ -1,6 +1,6 @@
 # MungrCleaner: An R Data Cleaning Framework
 
-**MungrCleaner** streamlines data cleaning using the **S3 object system**. It provides a structured, auditable approach to common data preparation steps. Best for users who want to quickly clean data without worrying about long pipelines.
+**MungrCleaner** streamlines data cleaning using the **S3 object system**. It provides a structured approach to common data preparation steps. Best for users who want to quickly clean data without worrying about long pipelines.
 
 -----
 
